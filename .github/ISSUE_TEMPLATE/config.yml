@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Problems that also happen upstream
+    url: https://github.com/umputun/agterm/issues
+    about: Bugs in agterm itself, its documentation, the agent skill or cookbook recipes.
+  - name: Questions and ideas
+    url: https://github.com/umputun/agterm/discussions
+    about: Ask about agterm or propose a feature upstream; this fork adds no features of its own.
