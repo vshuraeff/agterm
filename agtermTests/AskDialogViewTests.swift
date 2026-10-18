@@ -752,7 +752,10 @@ final class AskDialogViewTests: XCTestCase {
         fixture.session.updateAskDraft(id: try XCTUnwrap(fixture.session.askPending?.id)) {
             $0.text = String(repeating: "wrapped words ", count: 120)
         }
-        host.layoutSubtreeIfNeeded()
+        _ = waitUntil {
+            host.layoutSubtreeIfNeeded()
+            return (descendant(AskTextScrollView.self, in: host)?.frame.height ?? 0) > short * 1.5
+        }
         let tall = try XCTUnwrap(descendant(AskTextScrollView.self, in: host)).frame.height
         XCTAssertGreaterThan(tall, short * 1.5)
     }
@@ -783,7 +786,10 @@ final class AskDialogViewTests: XCTestCase {
         fixture.session.updateAskDraft(id: try XCTUnwrap(fixture.session.askPending?.id)) {
             $0.text = (1...9).map(String.init).joined(separator: "\n")
         }
-        host.layoutSubtreeIfNeeded()
+        _ = waitUntil {
+            host.layoutSubtreeIfNeeded()
+            return (descendant(AskTextScrollView.self, in: host)?.frame.height ?? 0) > short * 1.5
+        }
         let tall = try XCTUnwrap(descendant(AskTextScrollView.self, in: host)).frame.height
         XCTAssertGreaterThan(tall, short * 1.5)
     }

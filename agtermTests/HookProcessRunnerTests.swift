@@ -112,15 +112,13 @@ final class HookProcessRunnerTests: XCTestCase {
 
     func testMissingFieldsAreExportedEmptyNotInherited() async throws {
         let env = scratch.appendingPathComponent("env").path
-        setenv("AGT_SESSION_ID", "inherited-and-wrong", 1)
-        setenv("AGT_EVENT_HOST", "inherited-and-wrong", 1)
-        defer {
-            unsetenv("AGT_SESSION_ID")
-            unsetenv("AGT_EVENT_HOST")
-        }
+        // libghostty borrows environ at startup; setenv/unsetenv would invalidate its cached storage.
+        let runner = HookProcessRunner(socketProvider: { "/tmp/test.sock" }, inheritedEnvironment: {
+            ["AGT_SESSION_ID": "inherited-and-wrong", "AGT_EVENT_HOST": "inherited-and-wrong"]
+        })
         let script = "printf '[%s][%s][%s][%s]' \"$AGT_EVENT_STATUS\" \"$AGT_SESSION_ID\" \"$AGT_WINDOW_ID\" \"$AGT_EVENT_HOST\" > '\(env)'"
 
-        let (outcome, _) = try await run(script, event: ControlEvent(seq: 1, ts: 1, kind: .treeChanged))
+        let (outcome, _) = try await run(script, event: ControlEvent(seq: 1, ts: 1, kind: .treeChanged), runner: runner)
 
         XCTAssertEqual(outcome.exits, [0])
         XCTAssertEqual(try String(contentsOfFile: env, encoding: .utf8), "[][][][]")
