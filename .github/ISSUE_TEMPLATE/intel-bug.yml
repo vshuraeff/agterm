@@ -1,0 +1,58 @@
+name: Intel build problem
+description: A problem with this fork's Intel build, its releases or its patches.
+title: "[intel] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This fork tracks problems specific to the Intel build; see the pinned
+        [#1](https://github.com/vshuraeff/agterm/issues/1). Problems that also happen in upstream agterm belong in
+        [upstream issues](https://github.com/umputun/agterm/issues). Fill in what you can.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Crash or hang
+        - Behaves differently from the same upstream version
+        - Install, signing, notarization or Gatekeeper
+        - Intel patches, CI or release scripts
+        - Other
+  - type: input
+    id: release
+    attributes:
+      label: Fork release or commit
+      placeholder: intel-v0.37.0-r1
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 15.6.1, MacBook Pro 16-inch 2019
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, then what you expected and what happened instead.
+      placeholder: |
+        1. ...
+        2. ...
+
+        Expected: ...
+        Actual: ...
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and crash reports
+      description: |
+        Link a long log or a crash report as a
+        [gist](https://docs.github.com/en/get-started/writing-on-github/editing-and-sharing-content-with-gists)
+        rather than pasting it, or fold it into a
+        [collapsed section](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections).
+        With the [GitHub CLI](https://cli.github.com) (zsh or bash), this keeps stderr and the exit status:
+        `{ agtermctl tree --json; echo "exit $?"; } 2>&1 | gh gist create -f agtermctl-tree.txt -d "agterm Intel: tree fails" -`.
+        Gists are secret by default but readable by anyone with the link, so remove tokens, hostnames and usernames first.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
