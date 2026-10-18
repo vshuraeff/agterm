@@ -17,6 +17,7 @@ final class HookProcessRunner: HookLauncher {
 
     private let socketProvider: () -> String
     private let executableURL: URL
+    private let inheritedEnvironment: () -> [String: String]
     private let encode: @Sendable (ControlEvent) throws -> Data
     private let queue = DispatchQueue(label: "com.umputun.agterm.hooks", qos: .utility)
 
@@ -24,9 +25,11 @@ final class HookProcessRunner: HookLauncher {
     /// encoder); production uses `/bin/sh` and a plain `JSONEncoder`.
     init(socketProvider: @escaping () -> String,
          executableURL: URL = URL(fileURLWithPath: "/bin/sh"),
+         inheritedEnvironment: @escaping () -> [String: String] = { ProcessInfo.processInfo.environment },
          encode: @escaping @Sendable (ControlEvent) throws -> Data = { try JSONEncoder().encode($0) }) {
         self.socketProvider = socketProvider
         self.executableURL = executableURL
+        self.inheritedEnvironment = inheritedEnvironment
         self.encode = encode
     }
 
@@ -111,7 +114,7 @@ final class HookProcessRunner: HookLauncher {
     /// Every fixed variable is set explicitly, empty when the event lacks the field, so an inherited value
     /// can never point a script at the wrong session.
     private func environment(for event: ControlEvent) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+        var environment = inheritedEnvironment()
         environment["AGT_EVENT_KIND"] = event.kind.rawValue
         environment["AGT_EVENT_STATUS"] = event.payload.status ?? ""
         environment["AGT_EVENT_HOST"] = event.payload.host ?? ""
