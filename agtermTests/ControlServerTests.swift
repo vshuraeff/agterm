@@ -231,7 +231,7 @@ final class ControlServerTests: XCTestCase {
         early.isInverted = true
         let replied = expectation(description: "reply written")
         let reply = OSAllocatedUnfairLock<String?>(initialState: nil)
-        Thread {
+        makeWorkerThread {
             let line = Self.roundTrip(#"{"cmd":"browser.clear"}"#, at: path)
             reply.withLock { $0 = line }
             early.fulfill()
@@ -320,7 +320,7 @@ final class ControlServerTests: XCTestCase {
     private func send(_ line: String) async -> String? {
         let path = socketPath!
         return await withCheckedContinuation { continuation in
-            Thread { continuation.resume(returning: Self.roundTrip(line, at: path, limit: 1 << 20)) }.start()
+            makeWorkerThread { continuation.resume(returning: Self.roundTrip(line, at: path, limit: 1 << 20)) }.start()
         }
     }
 
@@ -349,7 +349,7 @@ final class ControlServerTests: XCTestCase {
         let sshInFlight = expectation(description: "the ssh has started")
         runner.onEntered = { sshInFlight.fulfill() }
         let remoteFinished = expectation(description: "the remote call returns once released")
-        Thread {
+        makeWorkerThread {
             _ = Self.roundTrip(#"{"cmd":"zmx.tree","args":{"host":"buildbox"}}"#, at: path)
             remoteFinished.fulfill()
         }.start()
@@ -357,14 +357,15 @@ final class ControlServerTests: XCTestCase {
         wait(for: [sshInFlight], timeout: 5)
 
         let probeAnswered = expectation(description: "a second client is served during the ssh")
-        var probe: String?
-        Thread {
-            probe = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+        let probe = OSAllocatedUnfairLock<String?>(initialState: nil)
+        makeWorkerThread {
+            let line = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+            probe.withLock { $0 = line }
             probeAnswered.fulfill()
         }.start()
 
         wait(for: [probeAnswered], timeout: 5)
-        XCTAssertNotNil(probe, "a second connection must be answered while the remote call is still waiting")
+        XCTAssertNotNil(probe.withLock { $0 }, "a second connection must be answered while the remote call is still waiting")
 
         runner.release.signal()
         wait(for: [remoteFinished], timeout: 10)

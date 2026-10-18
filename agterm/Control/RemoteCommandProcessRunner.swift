@@ -10,7 +10,7 @@ struct RemoteCommandProcessRunner: RemoteCommandRunner {
 
     func run(_ argv: [String], deadline: TimeInterval) async -> RemoteCommandResult {
         await withCheckedContinuation { continuation in
-            Thread.detachNewThread {
+            detachWorkerThread {
                 continuation.resume(returning: Self.execute(argv, deadline: deadline))
             }
         }
