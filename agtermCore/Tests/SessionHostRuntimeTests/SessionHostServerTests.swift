@@ -820,6 +820,82 @@ private let sessionHostFixtureReady = Responsibility.system.isAvailable
 
     private static let sweepTrials = 5
 
+    @Test(.enabled(if: sessionHostFixtureReady, "needs the responsibility SPI and staged zmx"))
+    func anAttachDoesNotReplayAQueryAlreadyAnsweredBeforeInit() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try fixture.start()
+        let probe = try AttributeProbe(directory: fixture.directory, phases: 2)
+        let request = fixture.probeRequest(probe)
+        guard case .ok = try fixture.exchange(.ensure(request)).last else {
+            Issue.record("real host ensure failed")
+            return
+        }
+        let socketPath = fixture.environment["ZMX_DIR"]! + "/" + request.name
+        let fd = try fixture.connect(path: socketPath)
+        defer { close(fd) }
+        let connection = try HostConnection(fd: fd)
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        _ = try zmxOutputBeforeInfo(connection, deadline: deadline)
+        try probe.signal(1)
+        #expect(try probe.outcome(1, bound: 3) == AttributeProbe.primary)
+        try zmxSend(connection, tag: .initialize, payload: Data([24, 0, 80, 0, 0, 0, 0, 0]), deadline: deadline)
+        let output = try zmxOutputBeforeInfo(connection, deadline: deadline)
+        var responder = DeviceAttributeResponder()
+        let duplicate = Array(output).withUnsafeBufferPointer { responder.feed($0) }
+        #expect(duplicate.isEmpty, "pre-init output would generate a duplicate DA reply: \(duplicate)")
+        if !duplicate.isEmpty {
+            try zmxSend(connection, tag: .input, payload: Data(duplicate), deadline: deadline)
+            _ = try zmxOutputBeforeInfo(connection, deadline: deadline)
+        }
+        try zmxSend(connection, tag: .detach, payload: Data(), deadline: deadline)
+        while try fixture.list().first?.clients != 0 {
+            try #require(ProcessInfo.processInfo.systemUptime < deadline)
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        try probe.signal(2)
+        let controlOutcome = try probe.outcome(2, bound: 3)
+        #expect(controlOutcome == AttributeProbe.secondary, "markers=\(probe.markers())")
+    }
+
+    private func zmxSend(_ connection: HostConnection, tag: ZmxTag, payload: Data, deadline: TimeInterval) throws {
+        // zmx's header stores a tag, a four-byte length and three padding bytes.
+        var header = (UInt64(tag.rawValue) | UInt64(payload.count) << 8).littleEndian
+        var frame = withUnsafeBytes(of: &header) { Data($0) }
+        frame.append(payload)
+        try connection.writeFrame(frame, deadline: deadline)
+    }
+
+    private func zmxOutputBeforeInfo(_ connection: HostConnection, deadline: TimeInterval) throws -> Data {
+        try zmxSend(connection, tag: .info, payload: Data(), deadline: deadline)
+        var buffered = Data()
+        var output = Data()
+        while true {
+            while buffered.count >= 8 {
+                let length = Int(buffered.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: 1, as: UInt32.self)) })
+                try #require(length < 1024 * 1024)
+                guard buffered.count >= 8 + length else { break }
+                let tag = buffered[0]
+                if tag == ZmxTag.output.rawValue { output.append(buffered[8..<(8 + length)]) }
+                if tag == ZmxTag.info.rawValue { return output }
+                buffered = Data(buffered.dropFirst(8 + length))
+            }
+            try hostWait(connection.fd, events: Int16(POLLIN), deadline: deadline)
+            var bytes = [UInt8](repeating: 0, count: 4096)
+            let count = read(connection.fd, &bytes, bytes.count)
+            switch count {
+            case 1...: buffered.append(contentsOf: bytes.prefix(count))
+            case 0: throw HostFailure.disconnected
+            default: if errno != EINTR && errno != EAGAIN { throw HostFailure.system(errno) }
+            }
+        }
+    }
+
+    /// zmx's IPC tags at the pinned `ZMX_REV` (`src/ipc.zig`).
+    private enum ZmxTag: UInt8 {
+        case input = 0, output = 1, detach = 3, info = 6, initialize = 7
+    }
+
     @Test(.enabled(if: sessionHostFixtureReady && ProcessInfo.processInfo.environment["AGTERM_DA_SWEEP"] != nil,
                   "needs AGTERM_DA_SWEEP and the responsibility SPI and staged zmx"),
           arguments: [0, 5, 20, 50, 100, 200])
@@ -1284,13 +1360,13 @@ private let sessionHostFixtureReady = Responsibility.system.isAvailable
             }
         }
 
-        func connect() throws -> Int32 {
+        func connect(path: String? = nil) throws -> Int32 {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { throw POSIXError(.EIO) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
             address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
-            let bytes = paths.socket.utf8CString
+            let bytes = (path ?? paths.socket).utf8CString
             withUnsafeMutableBytes(of: &address.sun_path) { buffer in bytes.withUnsafeBytes { buffer.copyMemory(from: $0) } }
             let result = withUnsafePointer(to: &address) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }

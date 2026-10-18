@@ -10,8 +10,9 @@ takes it with `-p1`: the zmx patches against `ZMX_REV`, the `ghostty/` ones agai
 in that `ZMX_REV`'s `build.zig.zon`. To change one, check out both trees side by side as `zmx` and
 `zmx-ghostty`, apply the ghostty patches to `zmx-ghostty` and then the zmx patches to `zmx`, since `0002`
 makes zmx build against `../zmx-ghostty`. Edit, run `zig build test` in `zmx`, then regenerate the file
-against the pristine copy of its own tree. Moving `ZMX_REV` means re-applying them by hand where they no
-longer apply, and re-running `check.py`.
+against the pristine copy of its own tree, including only that patch's changes. Use one-line context
+(`diff -U1`) for `0003` to avoid context changed by `0001`, and verify the patches apply in name order.
+Moving `ZMX_REV` means re-applying them by hand where they no longer apply, and re-running `check.py`.
 
 - `0001-explicit-leadership.patch` lets a terminal own which client leads a session. A client attached
   with `ZMX_MANAGED=<token>` leads only by claiming at attach (`ZMX_MANAGED_CLAIM`), never by typing, and
@@ -33,6 +34,11 @@ longer apply, and re-running `check.py`.
   name exists, so a losing creator gets the same `AddressInUse` a bind gave it and never removes the
   winner's socket. When `.s` cannot be made or the staged path is too long for `sockaddr_un`, it binds the
   session name directly and keeps the old window.
+- `0004-answer-device-queries-once.patch` removes answered DA queries from the broadcast to every
+  client, including run/tail clients, while no initialized terminal is attached, except escaped queries
+  preserved for passthrough framing.
+  The same parser queues replies and retains unanswered bytes; initialized terminals keep their
+  original output. Proposed upstream as neurosnap/zmx#292; drop it once `ZMX_REV` includes that fix.
 - `ghostty/0001-formatter-unstyled-blanks.patch` fixes the snapshot a re-attach replays. The formatter
   wrote cells a program skipped with a cursor move as spaces under the previous cell's style, so a gap
   after a colored run came back painted; a skipped cell now closes the style first. Spaces the program
