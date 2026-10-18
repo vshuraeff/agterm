@@ -93,7 +93,7 @@ final class ControlServerMacCatalogTests: XCTestCase {
     private func offMain<T: Sendable>(_ body: @escaping @Sendable () -> T) -> T? {
         let done = expectation(description: "client work finished")
         let box = Box<T>()
-        Thread {
+        makeWorkerThread {
             box.value = body()
             done.fulfill()
         }.start()
