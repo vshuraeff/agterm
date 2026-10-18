@@ -18,7 +18,7 @@ struct RemoteCommandProcessRunner: RemoteCommandRunner, RemoteInputCommandRunner
 
     private func launch(_ argv: [String], deadline: TimeInterval, input: URL?) async -> RemoteCommandResult {
         await withCheckedContinuation { continuation in
-            Thread.detachNewThread {
+            detachWorkerThread {
                 continuation.resume(returning: Self.execute(argv, deadline: deadline, input: input))
             }
         }
