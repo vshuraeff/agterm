@@ -1,0 +1,117 @@
+name: Intel deps
+
+# Builds and caches libghostty and zmx. intel-ci.yml calls it for its own jobs; a release dispatches it on the
+# default branch with the candidate's sha, so the tag build restores both while the local gates run.
+on:
+  workflow_call:
+    outputs:
+      ghostty-key:
+        value: ${{ jobs.deps.outputs.ghostty-key }}
+      zmx-key:
+        value: ${{ jobs.deps.outputs.zmx-key }}
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Full commit sha to build the caches for; dispatch on the default branch'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+jobs:
+  deps:
+    name: Intel build libghostty + zmx
+    runs-on: macos-15-intel
+    # a cold libghostty build takes about 40 minutes on the Intel runner
+    timeout-minutes: 90
+    concurrency:
+      group: intel-deps-${{ inputs.sha || github.sha }}
+      cancel-in-progress: false
+    outputs:
+      ghostty-key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
+      zmx-key: ${{ steps.zmx-cache.outputs.cache-primary-key }}
+    steps:
+      - name: Require a prewarm to save where tag builds can restore
+        if: inputs.sha != ''
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # tag runs restore only the default branch's caches
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Verify Intel toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 26.3'
+      - name: Read pinned helper revisions
+        id: revisions
+        shell: bash
+        run: |
+          ghostty=$(sed -nE 's/^GHOSTTY_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx=$(sed -nE 's/^ZMX_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx_target=$(sed -nE 's/^ZMX_TARGET="([^"]+)".*/\1/p' scripts/setup.sh)
+          [ -n "$ghostty" ] && [ -n "$zmx" ] && [ -n "$zmx_target" ]
+          ghostty_zig=$(bash scripts/intel-zig.sh GHOSTTY)
+          zmx_zig=$(bash scripts/intel-zig.sh ZMX)
+          ghostty_zig_version=$("$ghostty_zig" version)
+          zmx_zig_version=$("$zmx_zig" version)
+          # setup.sh takes these over its Homebrew formulas
+          { echo "GHOSTTY_ZIG=$ghostty_zig"; echo "ZMX_ZIG=$zmx_zig"; } >> "$GITHUB_ENV"
+          {
+            echo "ghostty=$ghostty"
+            echo "zmx=$zmx"
+            echo "zmx_target=$zmx_target"
+            echo "ghostty_zig=$ghostty_zig_version"
+            echo "zmx_zig=$zmx_zig_version"
+            echo "xcode=$(xcodebuild -version | tr '\n' '-')"
+            echo "os=$(sw_vers -productVersion)"
+          } >> "$GITHUB_OUTPUT"
+      # setup.sh rebuilds whatever is missing, so a hit is restored for real rather than looked up
+      - name: Cache libghostty (GhosttyKit + resources)
+        id: ghostty-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            GhosttyKit.xcframework
+            agterm/Resources/ghostty
+            agterm/Resources/terminfo
+            .ghostty-build-stamp
+          key: ghosttykit-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.ghostty_zig }}-${{ steps.revisions.outputs.ghostty }}-${{ hashFiles('scripts/setup.sh', 'scripts/ghostty-patches/*.patch', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Cache zmx
+        id: zmx-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            agterm/Resources/zmx
+            .zmx-build-stamp
+          key: zmx-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.zmx_zig }}-${{ steps.revisions.outputs.zmx }}-${{ steps.revisions.outputs.zmx_target }}-${{ hashFiles('scripts/setup.sh', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Build libghostty + zmx
+        if: steps.ghostty-cache.outputs.cache-hit != 'true' || steps.zmx-cache.outputs.cache-hit != 'true'
+        run: ./scripts/setup.sh
+      - name: Save libghostty cache
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            GhosttyKit.xcframework
+            agterm/Resources/ghostty
+            agterm/Resources/terminfo
+            .ghostty-build-stamp
+          key: ${{ steps.ghostty-cache.outputs.cache-primary-key }}
+      - name: Save zmx cache
+        if: steps.zmx-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            agterm/Resources/zmx
+            .zmx-build-stamp
+          key: ${{ steps.zmx-cache.outputs.cache-primary-key }}

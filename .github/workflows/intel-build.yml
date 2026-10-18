@@ -1,0 +1,189 @@
+name: Intel build
+
+on:
+  push:
+    tags: ['x86_64-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing x86_64-vX.Y.Z-rN tag; select the same tag as the workflow ref'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intel-build-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # the local gates ran the tests on this commit; CI builds what ships and checks what only the build shows
+  build:
+    name: Intel build (${{ matrix.configuration }})
+    runs-on: macos-15-intel
+    # a cache miss adds a cold libghostty build of about 40 minutes
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        configuration: [Release, Debug]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Require the workflow itself to run on the selected tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^x86_64-v([0-9]+\.[0-9]+\.[0-9]+)-r([1-9][0-9]*)$ ]]
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          echo "RELEASE_RESPIN=${BASH_REMATCH[2]}" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source and Intel toolchain
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --quiet --no-tags https://github.com/umputun/agterm.git "refs/tags/v$RELEASE_VERSION"
+          git merge-base --is-ancestor 'FETCH_HEAD^{commit}' HEAD
+          test "$(uname -m)" = x86_64
+          test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 26.3'
+      - name: Install build tools
+        run: brew install xcodegen
+      # the same key formula as intel-deps.yml, so a hit is built from the same pins, setup.sh and patches
+      - name: Read pinned helper revisions
+        id: revisions
+        shell: bash
+        run: |
+          ghostty=$(sed -nE 's/^GHOSTTY_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx=$(sed -nE 's/^ZMX_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx_target=$(sed -nE 's/^ZMX_TARGET="([^"]+)".*/\1/p' scripts/setup.sh)
+          [ -n "$ghostty" ] && [ -n "$zmx" ] && [ -n "$zmx_target" ]
+          ghostty_zig=$(bash scripts/intel-zig.sh GHOSTTY)
+          zmx_zig=$(bash scripts/intel-zig.sh ZMX)
+          ghostty_zig_version=$("$ghostty_zig" version)
+          zmx_zig_version=$("$zmx_zig" version)
+          # setup.sh takes these over its Homebrew formulas
+          { echo "GHOSTTY_ZIG=$ghostty_zig"; echo "ZMX_ZIG=$zmx_zig"; } >> "$GITHUB_ENV"
+          {
+            echo "ghostty=$ghostty"
+            echo "zmx=$zmx"
+            echo "zmx_target=$zmx_target"
+            echo "ghostty_zig=$ghostty_zig_version"
+            echo "zmx_zig=$zmx_zig_version"
+            echo "xcode=$(xcodebuild -version | tr '\n' '-')"
+            echo "os=$(sw_vers -productVersion)"
+          } >> "$GITHUB_OUTPUT"
+      # restore only: caches come from intel-deps.yml on the default branch; on a miss setup.sh builds from source
+      - name: Restore libghostty
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            GhosttyKit.xcframework
+            agterm/Resources/ghostty
+            agterm/Resources/terminfo
+            .ghostty-build-stamp
+          key: ghosttykit-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.ghostty_zig }}-${{ steps.revisions.outputs.ghostty }}-${{ hashFiles('scripts/setup.sh', 'scripts/ghostty-patches/*.patch', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Restore zmx
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            agterm/Resources/zmx
+            .zmx-build-stamp
+          key: zmx-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.zmx_zig }}-${{ steps.revisions.outputs.zmx }}-${{ steps.revisions.outputs.zmx_target }}-${{ hashFiles('scripts/setup.sh', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Build the ad-hoc app
+        run: |
+          scripts/setup.sh
+          xcodegen generate
+          # Sparkle reads the fork's appcast and compares CFBundleVersion, which carries the respin so an rN+1 of
+          # the same version still reaches rN installs; only the released Release build gets the feed.
+          feed=
+          [[ "${{ matrix.configuration }}" != Release ]] || feed="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml"
+          xcodebuild -project agterm.xcodeproj -scheme agterm -configuration "${{ matrix.configuration }}" \
+            -derivedDataPath build/DerivedData MARKETING_VERSION="$RELEASE_VERSION" \
+            CURRENT_PROJECT_VERSION="$RELEASE_VERSION.$RELEASE_RESPIN" AGTERM_UPDATE_FEED="$feed" \
+            GIT_COMMIT="$(git rev-parse --short HEAD)" build
+      - name: Package the ad-hoc app
+        if: matrix.configuration == 'Release'
+        run: |
+          mkdir -p build/intel-artifact
+          ditto -c -k --sequesterRsrc --keepParent build/DerivedData/Build/Products/Release/agterm.app \
+            "build/intel-artifact/agterm-$RELEASE_VERSION-x86_64-unsigned.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.configuration == 'Release'
+        with:
+          name: build-release
+          path: build/intel-artifact/*.zip
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.configuration == 'Debug'
+        with:
+          name: build-debug
+          path: build/DerivedData/Build/Products/Debug/agterm.app/Contents/MacOS/agterm.debug.dylib
+          if-no-files-found: error
+          retention-days: 1
+
+  # attests only after every check passed, on the zip it checked
+  attest:
+    name: Intel verify and attest
+    needs: build
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Require the workflow itself to run on the selected tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^x86_64-v([0-9]+\.[0-9]+\.[0-9]+)-r([1-9][0-9]*)$ ]]
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          echo "RELEASE_RESPIN=${BASH_REMATCH[2]}" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source and Intel toolchain
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          upstream="v$RELEASE_VERSION"
+          [[ ! -f .github/intel-upstream ]] || upstream=$(< .github/intel-upstream)
+          git fetch --quiet --no-tags https://github.com/umputun/agterm.git "refs/tags/$upstream"
+          git merge-base --is-ancestor 'FETCH_HEAD^{commit}' HEAD
+          test "$(uname -m)" = x86_64
+          test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 26.3'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-release
+          path: build/intel-artifact
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-debug
+          path: products/Debug/agterm.app/Contents/MacOS
+      - name: Verify Intel architecture and WMO closures
+        run: |
+          mkdir -p products/Release
+          ditto -x -k "build/intel-artifact/agterm-$RELEASE_VERSION-x86_64-unsigned.zip" products/Release
+          bash scripts/intel-verify-arch.sh products/Release/agterm.app
+          bash scripts/intel-verify-closures.sh products
+      - name: Attest the zip
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: build/intel-artifact/*.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.RELEASE_TAG }}-unsigned
+          path: build/intel-artifact/*.zip
+          if-no-files-found: error
+          retention-days: 30
