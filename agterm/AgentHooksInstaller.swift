@@ -498,8 +498,8 @@ enum AgentHooksInstaller {
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = text
+        alert.addButton(withTitle: "OK")
         if docs != nil {
-            alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Open Docs")
         }
         return alert
