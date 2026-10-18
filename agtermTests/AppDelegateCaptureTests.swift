@@ -76,6 +76,12 @@ final class AppDelegateCaptureTests: XCTestCase {
         printf 'name=\(ZmxSupport.daemonName(for: paneID))\\tpid=40\\tclients=1\\tcreated=1\\n'
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        // the Intel host's first exec of a fresh file adds about 200 ms, past the listing's limit with the sleep
+        let warmUp = Process()
+        warmUp.executableURL = executable
+        warmUp.standardOutput = FileHandle.nullDevice
+        try warmUp.run()
+        warmUp.waitUntilExit()
         let client = ZmxClient(executablePath: executable.path, socketDirectory: root.path)
         let resolver = ZmxForegroundResolver(
             leaderProvider: { client.sessionLeaderPIDs(timeout: $0) }, leaderProbe: { .foreground($0 + 1) })

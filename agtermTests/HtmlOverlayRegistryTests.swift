@@ -1143,7 +1143,12 @@ final class HtmlOverlayRegistryTests: HtmlPageTestCase {
         text.clearContents()
         text.setString("plain words", forType: .string)
         XCTAssertTrue(page.webView.readSelection(from: text))
-        try await waitFor("text pasted") { probe.messages.contains("paste:0:plain words") }
+        // older webkit inserts the selection without dispatching a dom paste event.
+        let deadline = Date().addingTimeInterval(10)
+        while try await page.webView.evaluateJavaScript("document.getElementById('t').value") as? String != "plain words" {
+            guard Date() < deadline else { return XCTFail("plain text was not inserted") }
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertFalse(probe.messages.contains { $0.hasPrefix("file:") || $0.hasPrefix("paste:1") }, "\(probe.messages)")
     }
 
