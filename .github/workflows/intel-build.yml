@@ -1,0 +1,126 @@
+name: Intel build
+
+on:
+  push:
+    tags: ['intel-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing intel-vX.Y.Z-rN tag; select the same tag as the workflow ref'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: intel-build-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    # a cache miss adds a cold libghostty build of about 40 minutes
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Require the workflow itself to run on the selected tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^intel-v([0-9]+\.[0-9]+\.[0-9]+)-r[1-9][0-9]*$ ]]
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source and Intel toolchain
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --quiet --no-tags https://github.com/umputun/agterm.git "refs/tags/v$RELEASE_VERSION"
+          git merge-base --is-ancestor 'FETCH_HEAD^{commit}' HEAD
+          test "$(uname -m)" = x86_64
+          test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 26.3'
+      - name: Install build tools
+        run: brew install xcodegen swiftlint
+      - name: Host-free tests and lint
+        run: |
+          scripts/watchdog.sh swift test --package-path agtermCore
+          make lint
+        env:
+          # the budget includes the cold build, about 10 minutes on the Intel runner
+          WATCHDOG_SECONDS: '1200'
+          DIAG_DIR: ${{ runner.temp }}/intel-test-hang
+      # the same key formula as intel-ci.yml, so a hit is built from the same pins, setup.sh and patches
+      - name: Read pinned helper revisions
+        id: revisions
+        shell: bash
+        run: |
+          ghostty=$(sed -nE 's/^GHOSTTY_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx=$(sed -nE 's/^ZMX_REV="([^"]+)".*/\1/p' scripts/setup.sh)
+          zmx_target=$(sed -nE 's/^ZMX_TARGET="([^"]+)".*/\1/p' scripts/setup.sh)
+          zig=$(sed -nE 's/^ZIG_FORMULA="([^"]+)".*/\1/p' scripts/setup.sh)
+          [ -n "$ghostty" ] && [ -n "$zmx" ] && [ -n "$zmx_target" ] && [ -n "$zig" ]
+          brew install "$zig"
+          zig_version=$("$(brew --prefix "$zig")/bin/zig" version)
+          {
+            echo "ghostty=$ghostty"
+            echo "zmx=$zmx"
+            echo "zmx_target=$zmx_target"
+            echo "zig=$zig_version"
+            echo "xcode=$(xcodebuild -version | tr '\n' '-')"
+            echo "os=$(sw_vers -productVersion)"
+          } >> "$GITHUB_OUTPUT"
+      # restore only: caches come from legacy/intel pushes; on a miss setup.sh builds from source
+      - name: Restore libghostty
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            GhosttyKit.xcframework
+            agterm/Resources/ghostty
+            agterm/Resources/terminfo
+            .ghostty-build-stamp
+          key: ghosttykit-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.zig }}-${{ steps.revisions.outputs.ghostty }}-${{ hashFiles('scripts/setup.sh', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Restore zmx
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            agterm/Resources/zmx
+            .zmx-build-stamp
+          key: zmx-v2-${{ runner.os }}-${{ steps.revisions.outputs.os }}-${{ runner.arch }}-${{ steps.revisions.outputs.xcode }}-${{ steps.revisions.outputs.zig }}-${{ steps.revisions.outputs.zmx }}-${{ steps.revisions.outputs.zmx_target }}-${{ hashFiles('scripts/setup.sh', 'scripts/zmx-patches/**/*.patch') }}
+      - name: Build ad-hoc Release and Debug comparison binaries
+        run: |
+          scripts/setup.sh
+          xcodegen generate
+          for configuration in Release Debug; do
+            xcodebuild -project agterm.xcodeproj -scheme agterm -configuration "$configuration" \
+              -derivedDataPath build/DerivedData MARKETING_VERSION="$RELEASE_VERSION" \
+              CURRENT_PROJECT_VERSION="$RELEASE_VERSION" GIT_COMMIT="$(git rev-parse --short HEAD)" build
+          done
+      - name: Verify Intel architecture and WMO closures
+        run: |
+          bash scripts/intel-verify-arch.sh build/DerivedData/Build/Products/Release/agterm.app
+          bash scripts/intel-verify-closures.sh build/DerivedData/Build/Products
+      - name: Session host fixtures against staged zmx
+        run: swift test --package-path agtermCore --filter SessionHostServerTests
+      - name: Package the ad-hoc app
+        run: |
+          mkdir -p build/intel-artifact
+          ditto -c -k --sequesterRsrc --keepParent build/DerivedData/Build/Products/Release/agterm.app \
+            "build/intel-artifact/agterm-$RELEASE_VERSION-x86_64-unsigned.zip"
+      - name: Attest the zip
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: build/intel-artifact/*.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.RELEASE_TAG }}-unsigned
+          path: build/intel-artifact/*.zip
+          if-no-files-found: error
+          retention-days: 30
