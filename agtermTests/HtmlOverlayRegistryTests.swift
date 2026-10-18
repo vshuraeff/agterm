@@ -1180,7 +1180,7 @@ final class HtmlOverlayRegistryTests: HtmlPageTestCase {
         text.clearContents()
         text.setString("plain words", forType: .string)
         XCTAssertTrue(page.webView.readSelection(from: text))
-        try await waitFor("text pasted") { probe.messages.contains("paste:0:plain words") }
+        try await waitForScript("document.getElementById('t').value", in: page.webView) { $0 == "plain words" } // older webkit fires no dom paste
         XCTAssertFalse(probe.messages.contains { $0.hasPrefix("file:") || $0.hasPrefix("paste:1") }, "\(probe.messages)")
     }
 
