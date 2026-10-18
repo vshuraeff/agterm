@@ -21,8 +21,8 @@ GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 GHOSTTY_REV="683d8db643b95cf229bfb5fe9fab9ae677920343"  # 2026-08-25
 ZMX_REPO="https://github.com/neurosnap/zmx"
 ZMX_REV="8bab1f0173b07e79835ea372d749af3dbf0d0842"  # v0.8.1, 2026-09-05; SessionHostRuntime/DeviceAttributeResponder.swift copies its DA replies
-# zig defaults to the builder's OS version and CPU; ship the app's arm64/macOS 14 baseline.
-ZMX_TARGET="aarch64-macos.14.0"
+# zig defaults to the builder's OS version and CPU; ship the app's x86_64/macOS 14 baseline.
+ZMX_TARGET="x86_64-macos.14.0"
 # ghostty pins minimum_zig_version 0.16.0. Name the MINOR LINE, not `zig`: that one rolls, so a fresh
 # build once 0.17 is current would compile a fixed GHOSTTY_REV with a compiler it never supported. Today
 # `zig@0.16` is still an alias for `zig`, so this buys nothing yet — it claims the name Homebrew uses when
