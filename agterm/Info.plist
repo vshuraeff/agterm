@@ -23,7 +23,11 @@
 	<key>SUFeedURL</key>
 	<string>$(AGTERM_UPDATE_FEED)</string>
 	<key>SUPublicEDKey</key>
-	<string>MHC8+YVrpFMxS8mXyPQK86xGf9a8+edu67FvkIpZOwI=</string>
+	<string>DsxuXqNek7F0O1528Xs48RYL1LYszdGkKSjG1dLs9fw=</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>LSMinimumSystemVersion</key>
