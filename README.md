@@ -1,6 +1,14 @@
 # agterm - a simply good terminal with a full control API
 
-[![Build Status](https://github.com/umputun/agterm/workflows/build/badge.svg)](https://github.com/umputun/agterm/actions) [![Coverage Status](https://coveralls.io/repos/github/umputun/agterm/badge.svg?branch=master)](https://coveralls.io/github/umputun/agterm?branch=master)
+[![Build Status](https://github.com/vshuraeff/agterm/actions/workflows/intel-ci.yml/badge.svg?branch=legacy/intel)](https://github.com/vshuraeff/agterm/actions/workflows/intel-ci.yml?query=branch%3Alegacy%2Fintel) [![Coverage Status](https://coveralls.io/repos/github/vshuraeff/agterm/badge.svg?branch=legacy/intel)](https://coveralls.io/github/vshuraeff/agterm?branch=legacy/intel)
+
+**This repository is an independent fork of [umputun/agterm](https://github.com/umputun/agterm) for Intel Macs.**
+Each of its releases is an upstream release, tag for tag, plus the few patches that agterm needs to build and run
+on `x86_64`. It adds no features of its own. The fork is maintained by a third-party developer, not by the agterm
+author: its builds are signed with the fork maintainer's Developer ID, notarized under that account, and carry
+their own bundle id, `io.github.vshuraeff.agterm`. [Install](#install) and the bug-report line under
+[Documentation](#documentation) are written for this fork; the rest of this README is upstream's.
+[INTEL.md](INTEL.md) lists the patches and describes how the fork follows upstream.
 
 **[agterm.com](https://agterm.com)** · [Documentation](https://agterm.com/docs) · [Command reference](https://agterm.com/commands) · [Cookbook](cookbook/)
 
@@ -59,23 +67,23 @@ A split session, two panes side by side on different color themes:
 
 ## Install
 
-Pre-built releases are for **Apple Silicon (arm64) Macs running macOS 14 or later**.
+This fork's releases are for **Intel (`x86_64`) Macs running macOS 14 or later**. On Apple Silicon, install
+upstream agterm instead, from its [releases page](https://github.com/umputun/agterm/releases) or with
+`brew install --cask umputun/apps/agterm`.
 
-Releases are signed with a Developer ID certificate and notarized by Apple, so macOS Gatekeeper opens them with no extra steps.
+Download `agterm-X.Y.Z-x86_64.dmg` and its `.sha256` from this fork's
+[releases page](https://github.com/vshuraeff/agterm/releases), check the download with
+`shasum -a 256 -c agterm-X.Y.Z-x86_64.dmg.sha256`, open the DMG, and drag `agterm.app` into `/Applications`.
+The app is signed with the fork maintainer's Developer ID certificate and notarized by Apple, so Gatekeeper
+opens it with no extra steps. There is no Homebrew cask for this fork, because upstream's cask installs only on
+Apple Silicon.
 
-Homebrew:
+If another agterm build is already installed, read [Installing over another build](INTEL.md#installing-over-another-build)
+first: the bundle id differs, while settings and sessions are shared between the two.
 
-```sh
-brew install --cask umputun/apps/agterm
-```
+Put the `agtermctl` command-line tool on your `PATH` with **Help ▸ Install Command Line Tool…**. The same **Help** menu also installs the agent status hooks and the agent skill, both optional and safe to rerun.
 
-Direct download:
-
-Download the latest `.dmg` from the [releases page](https://github.com/umputun/agterm/releases), open it, and drag `agterm.app` into `/Applications`.
-
-The Homebrew cask already installs the `agtermctl` command-line tool; from the DMG, put it on your `PATH` with **Help ▸ Install Command Line Tool…**. The same **Help** menu also installs the agent status hooks and the agent skill, both optional and safe to rerun.
-
-The skill is also published as a plugin from this repository, which puts it wherever your agent looks for one:
+The skill is also published as a plugin from the upstream repository, which puts it wherever your agent looks for one:
 
 ```sh
 # Claude Code
@@ -119,7 +127,7 @@ The same interface covers windows, splits, overlays, dashboards, HUDs, notificat
 
 Restore modes and the limits of live restore are covered in [Restore & persistence](https://agterm.com/docs#restore), and attaching another Mac's sessions in [Remote sessions](https://agterm.com/docs#remote-sessions).
 
-Log locations and the common problems are in [docs/troubleshooting.md](docs/troubleshooting.md). Report bugs in [Issues](https://github.com/umputun/agterm/issues), ask questions in [Discussions](https://github.com/umputun/agterm/discussions).
+Log locations and the common problems are in [docs/troubleshooting.md](docs/troubleshooting.md). Report a problem that occurs only in this Intel build in this fork's [Issues](https://github.com/vshuraeff/agterm/issues). Report everything else upstream in [Issues](https://github.com/umputun/agterm/issues), and ask questions in [Discussions](https://github.com/umputun/agterm/discussions).
 
 ## Related projects
 
