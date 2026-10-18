@@ -231,7 +231,7 @@ final class ControlServerTests: XCTestCase {
         early.isInverted = true
         let replied = expectation(description: "reply written")
         let reply = OSAllocatedUnfairLock<String?>(initialState: nil)
-        Thread {
+        makeWorkerThread {
             let line = Self.roundTrip(#"{"cmd":"browser.clear"}"#, at: path)
             reply.withLock { $0 = line }
             early.fulfill()
@@ -320,7 +320,7 @@ final class ControlServerTests: XCTestCase {
     private func send(_ line: String) async -> String? {
         let path = socketPath!
         return await withCheckedContinuation { continuation in
-            Thread { continuation.resume(returning: Self.roundTrip(line, at: path, limit: 1 << 20)) }.start()
+            makeWorkerThread { continuation.resume(returning: Self.roundTrip(line, at: path, limit: 1 << 20)) }.start()
         }
     }
 
@@ -349,7 +349,7 @@ final class ControlServerTests: XCTestCase {
         let sshInFlight = expectation(description: "the ssh has started")
         runner.onEntered = { sshInFlight.fulfill() }
         let remoteFinished = expectation(description: "the remote call returns once released")
-        Thread {
+        makeWorkerThread {
             _ = Self.roundTrip(#"{"cmd":"zmx.tree","args":{"host":"buildbox"}}"#, at: path)
             remoteFinished.fulfill()
         }.start()
@@ -357,14 +357,15 @@ final class ControlServerTests: XCTestCase {
         wait(for: [sshInFlight], timeout: 5)
 
         let probeAnswered = expectation(description: "a second client is served during the ssh")
-        var probe: String?
-        Thread {
-            probe = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+        let probe = OSAllocatedUnfairLock<String?>(initialState: nil)
+        makeWorkerThread {
+            let line = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+            probe.withLock { $0 = line }
             probeAnswered.fulfill()
         }.start()
 
         wait(for: [probeAnswered], timeout: 5)
-        XCTAssertNotNil(probe, "a second connection must be answered while the remote call is still waiting")
+        XCTAssertNotNil(probe.withLock { $0 }, "a second connection must be answered while the remote call is still waiting")
 
         runner.release.signal()
         wait(for: [remoteFinished], timeout: 10)
@@ -380,7 +381,7 @@ final class ControlServerTests: XCTestCase {
         let sshInFlight = expectation(description: "the group attach's discovery ssh has started")
         runner.onEntered = { sshInFlight.fulfill() }
         let remoteFinished = expectation(description: "the group attach returns once released")
-        Thread {
+        makeWorkerThread {
             _ = Self.roundTrip(#"{"cmd":"zmx.attach.group","target":"P","args":{"host":"buildbox"}}"#, at: path)
             remoteFinished.fulfill()
         }.start()
@@ -388,14 +389,15 @@ final class ControlServerTests: XCTestCase {
         wait(for: [sshInFlight], timeout: 5)
 
         let probeAnswered = expectation(description: "a second client is served during the ssh")
-        var probe: String?
-        Thread {
-            probe = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+        let probe = OSAllocatedUnfairLock<String?>(initialState: nil)
+        makeWorkerThread {
+            let line = Self.roundTrip(#"{"cmd":"window.list"}"#, at: path)
+            probe.withLock { $0 = line }
             probeAnswered.fulfill()
         }.start()
 
         wait(for: [probeAnswered], timeout: 5)
-        XCTAssertNotNil(probe, "a second connection must be answered while the group attach is still waiting")
+        XCTAssertNotNil(probe.withLock { $0 }, "a second connection must be answered while the group attach is still waiting")
 
         runner.release.signal()
         wait(for: [remoteFinished], timeout: 10)
@@ -417,21 +419,24 @@ final class ControlServerTests: XCTestCase {
         let sshInFlight = expectation(description: "the origin's create has started")
         runner.onEntered = { sshInFlight.fulfill() }
         let remoteFinished = expectation(description: "the remote create returns once released")
-        Thread {
-            _ = Self.roundTrip(#"{"cmd":"session.companion.new","target":"\#(remote.id.uuidString)"}"#, at: path)
+        let remoteID = remote.id.uuidString
+        let parentID = parent.id.uuidString
+        makeWorkerThread {
+            _ = Self.roundTrip(#"{"cmd":"session.companion.new","target":"\#(remoteID)"}"#, at: path)
             remoteFinished.fulfill()
         }.start()
         wait(for: [sshInFlight], timeout: 5)
 
         let answered = expectation(description: "a local create and a tree are served during the ssh")
-        var created: String?
-        var tree: String?
-        Thread {
-            created = Self.roundTrip(#"{"cmd":"session.companion.new","target":"\#(parent.id.uuidString)","args":{"noSelect":true}}"#, at: path)
-            tree = Self.roundTrip(#"{"cmd":"tree"}"#, at: path)
+        let replies = OSAllocatedUnfairLock<(created: String?, tree: String?)>(initialState: (nil, nil))
+        makeWorkerThread {
+            let created = Self.roundTrip(#"{"cmd":"session.companion.new","target":"\#(parentID)","args":{"noSelect":true}}"#, at: path)
+            let tree = Self.roundTrip(#"{"cmd":"tree"}"#, at: path)
+            replies.withLock { $0 = (created, tree) }
             answered.fulfill()
         }.start()
         wait(for: [answered], timeout: 5)
+        let (created, tree) = replies.withLock { $0 }
 
         let reply = try XCTUnwrap(created.flatMap { try? JSONDecoder().decode(ControlResponse.self, from: Data($0.utf8)) })
         let id = try XCTUnwrap(reply.result?.id, created ?? "")
