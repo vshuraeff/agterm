@@ -573,7 +573,7 @@ final class ControlServer {
         // runs from a worker and never reaches the remote route below
         if request.args?.opID != nil {
             handedOff = true
-            let worker = Thread {
+            let worker = makeWorkerThread {
                 defer { close(conn) }
                 let response = runBlocking { await server.originOperation(request) }
                 _ = server.responseWriter(conn, response ?? ControlResponse(ok: false, error: "no operation id"))
@@ -591,7 +591,7 @@ final class ControlServer {
                 return
             }
             handedOff = true
-            let worker = Thread {
+            let worker = makeWorkerThread {
                 defer { close(conn) }
                 _ = server.responseWriter(conn, runBlocking { await server.runRemoteRoute(route) })
             }
@@ -604,7 +604,7 @@ final class ControlServer {
         // waits in this server's backlog while this connection holds the only accept thread.
         if Self.waitsOnNetwork(request.cmd) {
             handedOff = true
-            let worker = Thread {
+            let worker = makeWorkerThread {
                 defer { close(conn) }
                 _ = server.responseWriter(conn, runBlocking { await server.dispatch(request) })
             }
