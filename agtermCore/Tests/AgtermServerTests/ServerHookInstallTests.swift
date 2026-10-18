@@ -74,18 +74,25 @@ struct ServerHookInstallTests {
         _ = try ServerHookInstall(resourcesDirectory: fixture.resources.path, home: fixture.home, toolPath: tool.path,
                                   environment: ["PATH": fixture.bin.path], openCode: nil).run()
 
-        let process = Process()
-        process.executableURL = fixture.home.appendingPathComponent(".config/agterm/agent-status/\(AgentHooksInstall.wrapperName)")
-        process.arguments = ["active"]
+        let wrapper = fixture.home.appendingPathComponent(".config/agterm/agent-status/\(AgentHooksInstall.wrapperName)")
         let socket = fixture.root.appendingPathComponent("agterm.sock").path
-        process.environment = ["PATH": "/usr/bin:/bin", "HOME": fixture.home.path, "AGTERM_SESSION_ID": "s1", "AGTERM_SOCKET": socket]
+        let environment = ["PATH": "/usr/bin:/bin", "HOME": fixture.home.path, "AGTERM_SESSION_ID": "s1", "AGTERM_SOCKET": socket]
+        #if canImport(Darwin)
+        // reaped by waitpid: on macOS 15 Process can miss this exit for seconds while parallel tests spawn processes
+        #expect(try ForegroundSpawn.run([wrapper.path, "active"], input: .nothing, environment: environment) == .exited(0))
+        #else
+        let process = Process()
+        process.executableURL = wrapper
+        process.arguments = ["active"]
+        process.environment = environment
         let finished = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in finished.signal() }
         try process.run()
         defer { if process.isRunning { process.terminate() } }
         try #require(finished.wait(timeout: .now() + 5) == .success)
-
         #expect(process.terminationStatus == 0)
+        #endif
+
         #expect(try String(contentsOf: calls, encoding: .utf8) == "session status active --target s1 --socket \(socket)\n")
     }
 
