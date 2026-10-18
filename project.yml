@@ -16,7 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SDKROOT: macosx
     MACOSX_DEPLOYMENT_TARGET: "14.0"
-    ARCHS: arm64
+    # Intel fork: setup.sh stages GhosttyKit for the build host, so the app stays on that slice.
+    ARCHS: x86_64
     ONLY_ACTIVE_ARCH: NO
     SWIFT_STRICT_CONCURRENCY: complete
     # The agtermTests scheme intentionally builds serially so the app's deep-sign
