@@ -6,7 +6,8 @@ import Network
 final class RemoteLinkObserver {
     private let onRetry: @MainActor () -> Void
     private let monitor = NWPathMonitor()
-    private var wakeObserver: NSObjectProtocol?
+    /// Main-actor-owned; the opt-out only lets the plain deinit release the token (see `SystemWakeObserver`).
+    nonisolated(unsafe) private var wakeObserver: NSObjectProtocol?
     private var watching = false
     private var reported = false
 
@@ -41,7 +42,8 @@ final class RemoteLinkObserver {
         if reported, satisfied { onRetry() }
     }
 
-    isolated deinit {
+    /// Plain deinit: Intel macOS 15 crashes in the `isolated deinit` back-deployment thunk.
+    deinit {
         monitor.cancel()
         if let wakeObserver { NotificationCenter.default.removeObserver(wakeObserver) }
     }

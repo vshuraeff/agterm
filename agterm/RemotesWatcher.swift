@@ -10,7 +10,8 @@ final class RemotesWatcher {
     /// issueCount is how many problems the file has: its parse diagnostics, or one when it cannot be read.
     private(set) var issueCount = 0
     @ObservationIgnored private var url: URL
-    @ObservationIgnored private var sources: [DispatchSourceFileSystemObject] = []
+    /// Main-actor-owned; the opt-out only lets the plain deinit cancel the sources (see `SystemWakeObserver`).
+    @ObservationIgnored nonisolated(unsafe) private var sources: [DispatchSourceFileSystemObject] = []
     @ObservationIgnored private let onIssues: (Int) -> Void
 
     /// `onIssues` runs when an edit turns a clean file into one with problems, once per such episode.
@@ -20,7 +21,8 @@ final class RemotesWatcher {
         refresh(reporting: false)
     }
 
-    isolated deinit {
+    /// Plain deinit: Intel macOS 15 crashes in the `isolated deinit` back-deployment thunk.
+    deinit {
         sources.forEach { $0.cancel() }
     }
 
