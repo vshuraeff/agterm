@@ -54,7 +54,9 @@ final class SessionHostSeamTests: XCTestCase {
         XCTAssertEqual(bareEncoding.count, 3)
         XCTAssertEqual(mediatedEncoding.count, 3)
         XCTAssertEqual(try bareEncoding.dropFirst().map(numericEncoding), try mediatedEncoding.dropFirst().map(numericEncoding))
-        // Foundation refreshes the UID in this cache when the Swift client loads.
+        XCTAssertEqual(try bareEncoding.dropFirst().map(numericEncoding), [0, 2])
+        // both paths must preserve the fixture's valid CoreFoundation encoding cache.
+        XCTAssertEqual(try bareEncoding.first.map(numericEncoding), getuid())
         XCTAssertEqual(mediatedEncoding.first.map { UInt32($0.dropFirst(2), radix: 16) }, getuid())
         XCTAssertEqual(mediated.environment["SEAM_VALUE"], "two words; $literal 'quote'")
         XCTAssertEqual(mediated.environment["SEAM_AFTER_HOST_START"], "new pane environment")
@@ -147,7 +149,10 @@ final class SessionHostSeamTests: XCTestCase {
             session.initialCommand = creationPayload ? "source -- " + CommandRestore.shellQuotedLine([probe.path]) : nil
             let seed = try XCTUnwrap(ZmxLaunch.surfaceSeed(disposition: .wrapped(configuration), session: session, pane: .left, denylist: []))
             if supervised { XCTAssertTrue(seed.command.contains("'client'")) }
-            let surface = GhosttySurfaceView(workingDirectory: physicalDirectory, fontSize: 14, command: seed.command,
+            // login replaces this cache, so set the fixture value after login and before either client.
+            let command = CommandRestore.shellQuotedLine(["/usr/bin/env", "__CF_USER_TEXT_ENCODING=0x\(String(getuid(), radix: 16)):0:2"])
+                + " " + seed.command
+            let surface = GhosttySurfaceView(workingDirectory: physicalDirectory, fontSize: 14, command: command,
                                             env: configuration.environment, backedByZmx: true)
             surfaces.append(surface)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 480), styleMask: .borderless, backing: .buffered, defer: false)
