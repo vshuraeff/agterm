@@ -127,7 +127,7 @@ private final class ProcessLink: RemotePresentationLink {
     private nonisolated static func readLines(from handle: FileHandle, wake: Pipe,
                                               deliver: @escaping @Sendable (Data) -> Void,
                                               ended: @escaping @Sendable () -> Void) {
-        let thread = Thread {
+        let thread = makeWorkerThread {
             let fd = handle.fileDescriptor
             var polled = [pollfd(fd: fd, events: Int16(POLLIN), revents: 0),
                           pollfd(fd: wake.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)]
