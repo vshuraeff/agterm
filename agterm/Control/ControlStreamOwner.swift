@@ -52,14 +52,14 @@ final class ControlStreamOwner: @unchecked Sendable {
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &bound, socklen_t(MemoryLayout<timeval>.size))
 
         let writerDone = DispatchSemaphore(value: 0)
-        let writer = Thread { [self] in
+        let writer = makeWorkerThread { [self] in
             writeLoop()
             writerDone.signal()
         }
         writer.name = "com.umputun.agterm.control.stream.write"
         writer.start()
 
-        let reader = Thread { [self] in
+        let reader = makeWorkerThread { [self] in
             readLoop(onLine: onLine)
             shutdown()
             writerDone.wait()
