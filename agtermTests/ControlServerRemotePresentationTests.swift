@@ -632,7 +632,7 @@ final class ControlServerRemotePresentationTests: XCTestCase {
 
         private nonisolated static func relay(from source: Int32, to destination: Int32, record: Lines?, done: DispatchGroup) {
             done.enter()
-            Thread {
+            makeWorkerThread {
                 var pending = Data()
                 var chunk = [UInt8](repeating: 0, count: 16 * 1024)
                 while true {

@@ -33,7 +33,7 @@ final class FakePageOrigin: @unchecked Sendable {
     var written: Int { state.withLock { chunksWritten } }
 
     func start() {
-        Thread { [self] in readLoop() }.start()
+        makeWorkerThread { [self] in readLoop() }.start()
     }
 
     func answerCancels() {
@@ -88,7 +88,7 @@ final class FakePageOrigin: @unchecked Sendable {
         case .resource(let id, let path):
             guard !held.contains(path) else { return }
             workers.enter()
-            Thread { [self] in
+            makeWorkerThread { [self] in
                 serve(id, path)
                 workers.leave()
             }.start()

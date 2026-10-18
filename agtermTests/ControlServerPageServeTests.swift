@@ -182,7 +182,7 @@ final class ControlServerPageServeTests: XCTestCase {
     private func offMain<T: Sendable>(_ body: @escaping @Sendable () -> T) -> T? {
         let done = expectation(description: "helper work finished")
         let box = Box<T>()
-        Thread {
+        makeWorkerThread {
             box.value = body()
             done.fulfill()
         }.start()
