@@ -19,11 +19,13 @@ GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 GHOSTTY_REV="83fb95624b0439ee660c2679b43b38c8b63769cd"  # v1.4.0, 2026-10-27
 ZMX_REPO="https://github.com/neurosnap/zmx"
 ZMX_REV="8bab1f0173b07e79835ea372d749af3dbf0d0842"  # v0.8.1, 2026-09-05; SessionHostRuntime/DeviceAttributeResponder.swift copies its DA replies
-# zig defaults to the builder's OS version and CPU; ship the app's arm64/macOS 14 baseline.
-ZMX_TARGET="aarch64-macos.14.0"
+# zig defaults to the builder's OS version and CPU; ship the app's x86_64/macOS 14 baseline.
+ZMX_TARGET="x86_64-macos.14.0"
 # pin minor lines because the unversioned zig formula rolls; zmx stays on 0.16 independently.
 GHOSTTY_ZIG_FORMULA="zig@0.17"
 ZMX_ZIG_FORMULA="zig@0.16"
+# GHOSTTY_ZIG / ZMX_ZIG in the environment name a zig to use instead of the formula's, for hosts
+# Homebrew ships no bottle for; it must still match the formula's minor line.
 XCFRAMEWORK_DIR="GhosttyKit.xcframework"
 # terminfo/ is the marker: it must extract as a SIBLING of ghostty/ so libghostty's
 # TERMINFO=dirname(GHOSTTY_RESOURCES_DIR)/terminfo derivation resolves xterm-ghostty.
@@ -86,8 +88,13 @@ fi
 # project builds with the right one and keeps its own `zig` untouched. called only by the build that
 # needs it, so a zmx-only run never installs ghostty's compiler.
 zig_for() {
-  local formula="$1" want="${1#zig@}" zig ver
-  zig="$(brew --prefix "$formula" 2>/dev/null || true)/bin/zig"
+  local formula="$1" override="${2:-}" want="${1#zig@}" zig ver
+  if [[ -n "$override" ]]; then
+    zig="$override"
+    [[ -x "$zig" ]] || { echo "error: $zig is not an executable zig" >&2; return 1; }
+  else
+    zig="$(brew --prefix "$formula" 2>/dev/null || true)/bin/zig"
+  fi
   if [[ ! -x "$zig" ]]; then
     echo "installing $formula..." >&2
     brew install "$formula" >&2 || return 1
@@ -173,7 +180,7 @@ if $need_xc || $need_res; then
     git -C "$ghostty_build" apply --whitespace=nowarn "$PWD/$ghostty_patch"
   done
 
-  GHOSTTY_ZIG="$(zig_for "$GHOSTTY_ZIG_FORMULA")"
+  GHOSTTY_ZIG="$(zig_for "$GHOSTTY_ZIG_FORMULA" "${GHOSTTY_ZIG:-}")"
   echo "building GhosttyKit.xcframework with zig (a few minutes)..."
   ( cd "$ghostty_build" && "$GHOSTTY_ZIG" build -Doptimize=ReleaseFast -Demit-xcframework=true \
       -Dxcframework-target=native -Demit-macos-app=false )
@@ -223,7 +230,7 @@ if $need_zmx; then
     git -C "$zmx_build" apply --whitespace=nowarn "$PWD/$zmx_patch"
   done
 
-  ZMX_ZIG="$(zig_for "$ZMX_ZIG_FORMULA")"
+  ZMX_ZIG="$(zig_for "$ZMX_ZIG_FORMULA" "${ZMX_ZIG:-}")"
   patch_zig_float_h
 
   echo "building zmx with zig..."
