@@ -1433,8 +1433,10 @@ extension TextPageRenderingTests {
           range.setStart(node, at);
           range.setEnd(node, at + 1);
           const fragments = code.getClientRects();
+          // macOS 15 WebKit adds the previous line's end to a range starting a line, so read the glyph's own rect
+          const glyphs = range.getClientRects();
           const gutter = document.querySelector('.agterm-gutter').textContent.split('\\n');
-          return [gutter.indexOf('3'), rowOf(range.getBoundingClientRect()), gutter.length,
+          return [gutter.indexOf('3'), rowOf(glyphs[glyphs.length - 1]), gutter.length,
                   rowOf(fragments[fragments.length - 1]) + 1,
                   document.scrollingElement.scrollWidth > document.scrollingElement.clientWidth].join('|');
         })()
