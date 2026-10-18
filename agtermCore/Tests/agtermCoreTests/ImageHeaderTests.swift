@@ -19,8 +19,10 @@ struct ImageHeaderTests {
         static func le32(_ value: Int) -> [UInt8] { be32(value).reversed() }
 
         static func png(width: Int, height: Int, chunk: String = "IHDR") -> [UInt8] {
-            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + be32(13) + Array(chunk.utf8)
-                + be32(width) + be32(height) + [8, 6, 0, 0, 0] + [0x1F, 0x15, 0xC4, 0x89]
+            let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+            let header: [UInt8] = be32(13) + Array(chunk.utf8) + be32(width) + be32(height)
+            let tail: [UInt8] = [8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89]
+            return signature + header + tail
         }
 
         static func gif(width: Int, height: Int) -> [UInt8] {

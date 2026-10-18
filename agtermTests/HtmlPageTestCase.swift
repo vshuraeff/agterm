@@ -48,7 +48,8 @@ class HtmlPageTestCase: XCTestCase {
     var current: HtmlOverlay? { session.htmlOverlay ?? session.paneOverlay(.left)?.html }
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("agterm-html-reg-\(UUID().uuidString)")
+        // webkit already grants access to darwin_user_temp_dir, so it cannot test a folder grant boundary.
+        directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".agterm-html-reg-\(UUID().uuidString)")
         pages = directory.appendingPathComponent("pages")
         try FileManager.default.createDirectory(at: pages, withIntermediateDirectories: true)
         store = AppStore(persistence: PersistenceStore(directory: directory.appendingPathComponent("state")))
