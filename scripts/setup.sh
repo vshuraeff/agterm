@@ -19,8 +19,8 @@ GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 GHOSTTY_REV="83fb95624b0439ee660c2679b43b38c8b63769cd"  # v1.4.0, 2026-10-27
 ZMX_REPO="https://github.com/neurosnap/zmx"
 ZMX_REV="a35f00a2118b15a5e9d522a43035c8d7487df9b7"  # v1.0.1, 2026-11-06
-# zig defaults to the builder's OS version and CPU; ship the app's arm64/macOS 14 baseline.
-ZMX_TARGET="aarch64-macos.14.0"
+# zig defaults to the builder's OS version and CPU; ship the app's x86_64/macOS 14 baseline.
+ZMX_TARGET="x86_64-macos.14.0"
 # setup-zmx-linux.sh builds the same pin for a Linux target into its own stage dir and stamp. Unquoted, so
 # CI's `^ZMX_TARGET="` read of the line above matches it alone.
 ZMX_TARGET=${AGTERM_ZMX_TARGET:-$ZMX_TARGET}
@@ -28,6 +28,8 @@ ZMX_TARGET=${AGTERM_ZMX_TARGET:-$ZMX_TARGET}
 ZIG_FORMULA="zig@0.17"
 ZIG_LINUX_VERSION="0.17.1"
 ZIG_LINUX_SHA256="3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a"  # zig-x86_64-linux-0.17.1.tar.xz
+# GHOSTTY_ZIG / ZMX_ZIG in the environment name a zig to use instead of the formula's, for hosts
+# Homebrew ships no bottle for; it must still match the formula's minor line.
 XCFRAMEWORK_DIR="GhosttyKit.xcframework"
 # terminfo/ is the marker: it must extract as a SIBLING of ghostty/ so libghostty's
 # TERMINFO=dirname(GHOSTTY_RESOURCES_DIR)/terminfo derivation resolves xterm-ghostty.
@@ -130,7 +132,7 @@ if $need_xc || $need_res; then
     git -C "$ghostty_build" apply --whitespace=nowarn "$PWD/$ghostty_patch"
   done
 
-  GHOSTTY_ZIG="$(zig_for)"
+  GHOSTTY_ZIG="$(zig_for "${GHOSTTY_ZIG:-}")"
   echo "building GhosttyKit.xcframework with zig (a few minutes)..."
   ( cd "$ghostty_build" && "$GHOSTTY_ZIG" build -Doptimize=ReleaseFast -Demit-xcframework=true \
       -Dxcframework-target=native -Demit-macos-app=false )
@@ -169,7 +171,7 @@ if $need_zmx; then
     git -C "$zmx_build" apply --whitespace=nowarn "$PWD/$zmx_patch"
   done
 
-  ZMX_ZIG="$(zig_for "${AGTERM_ZMX_ZIG:-}")"
+  ZMX_ZIG="$(zig_for "${ZMX_ZIG:-${AGTERM_ZMX_ZIG:-}}")"
 
   echo "building zmx with zig..."
   ( cd "$zmx_build" && "$ZMX_ZIG" build -Doptimize=ReleaseSafe -Dtarget="$ZMX_TARGET" )
