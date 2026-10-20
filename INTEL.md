@@ -8,7 +8,9 @@ maintenance runbook; the notice at the top of [README.md](README.md) is the shor
 
 - **Tag-for-tag parity.** Release `intel-vX.Y.Z-rN` is upstream tag `vX.Y.Z` plus the Intel stack below, and
   `legacy/intel` is upstream `master` plus the same stack. The fork adds no features and changes no behavior
-  that already works on Intel.
+  that already works on Intel. Only on the maintainer's call may a release carry upstream `master` commits that
+  no upstream tag has yet: they are cherry-picked with `-x` onto the tag below the stack, the version takes the
+  next patch number, and a release-only commit adds `.github/intel-upstream` naming the base tag.
 - **Only what Intel needs.** A change joins the stack when agterm cannot build, run or pass its gates on
   `x86_64` without it, or when it keeps this build's identity apart from upstream's (bundle id, signing,
   release assets, the README notice). Any other fix goes upstream as a pull request from `master` and arrives
@@ -47,6 +49,7 @@ maintenance runbook; the notice at the top of [README.md](README.md) is the shor
 | `feat(intel)` bundle id | `io.github.vshuraeff.agterm` (Debug `.debug`), so this build never claims upstream's identity. |
 | `build(intel)` CI | `intel-ci.yml` runs upstream's checks for `legacy/intel` pushes/PRs and manual dispatch on `macos-15-intel`, with distinct Intel check names and longer cold-build budgets. It uploads coverage to the fork's Coveralls project. `deps` builds and caches libghostty and zmx (about 40 minutes cold), then `build`, `fixtures` and `hosted` run in parallel; `closures` compares their Release and Debug binaries. `hosted` skips three `ImageRenderer` tests that assert in Metal on the virtual GPU; local `make test-app` still runs them. Upstream's `ci.yml` remains unchanged and targets `master`; `intel-build.yml` builds release tags; `scripts/intel-release.sh` signs locally. |
 | `docs(intel)` | This file, the README notice, badges, Install section and bug-report line, the issue form in `.github/ISSUE_TEMPLATE/`, and `.claude/rules/intel-fork.md` for coding agents. |
+| `build(intel)` release and DMG | `scripts/intel-release.sh` runs a release to publication and resumes it from `build/<tag>/` (Release below); `intel-attest.yml` attests the DMG on the draft, the file that gets published, and writes the notes with `scripts/intel-release-notes.sh`; `scripts/intel-verify-signed-app.sh` is the signed-app check both release workflows share. `scripts/build-dmg.sh` lays out the installer window from `scripts/dmg/` with a pinned dmgbuild: its settings, and a background TIFF that `render-background.sh` draws from `background.svg`. `scripts/check-dmg.sh` checks an image's entries, background and Finder records against that layout, and its app against the app it should hold. `intel-ci.yml`'s `build` job builds and checks one from the ad-hoc app; `intel-dmg.yml` builds and attests the release DMG from the signed app. Everything but `intel-dmg.yml`, the `intel-ci.yml` step and the SVG's `intel` group is meant for an upstream pull request, with the same step in `ci.yml` and a `release.sh` call. |
 | `fix:` zmx DA replies | Temporary, above the stack: patch `0003` stops zmx forwarding a DA query it already answered to an attach whose `Init` comes later. It flakes the session host fixtures here, never on upstream's arm64 CI. Dropped once `ZMX_REV` includes neurosnap/zmx#292. |
 
 When upstream adds a type with `isolated deinit` or a new thread start, it gets the same treatment in the
@@ -101,15 +104,17 @@ bash scripts/intel-verify-closures.sh build/DerivedData/Build/Products
 
 ## Release
 
-Signing and notarization happen only on the maintainer's machine; GitHub holds no credentials.
-CI builds and verifies an unsigned app and attests its provenance; the release script downloads that exact
-artifact, verifies the attestation, signs it inside-out with a Developer ID identity, notarizes and staples the
-app and the DMG, and creates a draft release.
-`intel-build.yml` restores the libghostty and zmx caches that `intel-ci.yml` saves on `legacy/intel` pushes.
-Keep `legacy/intel` as the fork's default branch: GitHub lets tag runs restore the default branch's caches;
-PR merge-ref caches cannot seed releases ([cache scope](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)).
-Both workflows must keep identical key formulas and paths: the key covers runner OS/version/architecture,
-Xcode, Zig, dependency pins, `scripts/setup.sh` and zmx patches. A miss builds from source.
+Signing and notarization happen only on the maintainer's machine; GitHub holds no credentials. From the tag
+push to the published release no step needs a person, so an agent can drive a release whole.
+
+Check the machine first:
+
+- `git config user.name` and `user.email` in the checkout are the public identity (the GitHub noreply address;
+  a private one is refused with GH007), and signing is on: every stack commit and the tag are signed.
+- `security find-identity -v -p codesigning` lists a `Developer ID Application` identity, and
+  `xcrun notarytool history --keychain-profile <profile>` succeeds for the profile the script will use.
+- `gh` is 2.67.0 or newer, since older versions exit 0 when no attestation is found, and `uv` is installed.
+- The screen stays unlocked for the whole run (Failures seen).
 
 The candidate is the refreshed stack moved onto the tag. Its base is the `master` commit the stack sits on,
 recorded before `master` moves again, never `fork/master` itself:
@@ -121,19 +126,67 @@ git switch -c release/intel-X.Y.Z-rN fork/legacy/intel
 bash scripts/intel-refresh.sh "$BASE" vX.Y.Z
 # drop temporary commits the tag already has, then the gates as above
 git diff vX.Y.Z HEAD -- site docs cookbook plugins CHANGELOG.md   # must print nothing
-git tag intel-vX.Y.Z-rN
-git push fork refs/tags/intel-vX.Y.Z-rN        # starts the Intel build workflow
+git tag -a intel-vX.Y.Z-rN -m "agterm vX.Y.Z for Intel"
+git push fork refs/tags/intel-vX.Y.Z-rN        # starts intel-build.yml, about 30 minutes
 bash scripts/intel-release.sh X.Y.Z N --dry-run  # after the workflow succeeds
 bash scripts/intel-release.sh X.Y.Z N --publish
 ```
 
-Then review the draft on GitHub and publish it. The asset is `agterm-X.Y.Z-x86_64.dmg` with its `.sha256`.
+A release that carries upstream `master` commits (What the fork is) starts from a branch at the base tag: the
+commits are cherry-picked there with `-x`, oldest first, together with any commit they depend on, and that branch
+is `ONTO` for `intel-refresh.sh`. `.github/intel-upstream` is committed above the stack, and the `git diff` check
+then prints only the picked changes.
+
+CI builds and verifies an unsigned app and attests its provenance. `--publish` downloads that exact artifact,
+verifies the attestation, signs it inside-out with the Developer ID identity, notarizes and staples it, and puts it
+on a new draft release. `intel-dmg.yml` checks the app's signature and ticket and builds the DMG; the script checks
+the image with `check-dmg.sh` against its signed app, then signs, notarizes and staples it and uploads it with its
+`.sha256`. `intel-attest.yml` downloads the DMG from the draft, checks its checksum, signatures, ticket, Gatekeeper
+assessment and layout, attests that file and writes the release notes. The script verifies the attestation, removes
+the app zip, publishes the release as the latest, then checks the published DMG's checksum, attestation and ticket.
+Without `--publish` it stops once the app is notarized. Workflow runs are found by tag, commit and dispatch time,
+so drive one release per tag at a time.
+
+Notarization can outlast the script's wait (`AGTERM_NOTARY_WAIT`, default `30m`), and each workflow run gets
+30 minutes. The script then exits 75 and names what is pending; rerunning the same command resumes from the
+records in `build/intel-vX.Y.Z-rN/`. It never submits an artifact twice or replaces a signed DMG, an artifact
+Apple already holds a ticket for is stapled without a submission, and a workflow run that failed is dispatched
+again. A rerun refuses a release someone else published before it uploads anything; after its own publication
+it repeats only the final checks. Once they pass the DMG and its `.sha256` move to `build/` and that directory is
+removed. To release an older tag with a newer script, run the newer one with `AGTERM_RELEASE_ROOT` set to the
+tag's clean checkout; `--publish` needs a tag that carries all three release workflows.
 `intel-build.yml` can be rerun with `gh workflow run intel-build.yml --ref intel-vX.Y.Z-rN -f tag=intel-vX.Y.Z-rN`.
 
-The script takes the signing identity from `AGTERM_SIGN_IDENTITY` or the keychain's first
-`Developer ID Application` identity, and notary credentials from the notarytool keychain profile named by
-`AGTERM_NOTARY_PROFILE` (default `agterm-notary`), as upstream's `scripts/release.sh` does.
-It refuses to publish an unsigned build. There is no Homebrew cask for this fork.
+The signing identity comes from `AGTERM_SIGN_IDENTITY` or the keychain's first `Developer ID Application`
+identity, and notary credentials from the notarytool keychain profile named by `AGTERM_NOTARY_PROFILE` (default
+`agterm-notary`, as upstream's `scripts/release.sh`). The script refuses to publish an unsigned build. There is no
+Homebrew cask for this fork.
+
+### Release notes
+
+`scripts/intel-release-notes.sh` writes them from the base tag's `CHANGELOG.md` section, as upstream's `release.sh`
+does, so they keep upstream's New Features, Improved and Bug Fixes groups. Cherry-picked commits come first, under
+"From upstream master", one entry per upstream pull request: `feat` under New Features, `fix` under Bug Fixes,
+`docs` and untyped subjects under Improved; `refactor`, `test`, `ci`, `chore` and `docs(backlog)` are left out, as
+upstream leaves them out. Issue and pull request numbers and short hashes link to upstream, and authors become
+plain links, so the notes notify nobody. A generated entry is its commit subject: correct one on the published
+release with `gh release edit --notes-file`.
+
+### Failures seen
+
+- notarytool exits 69 with `No Keychain password item found for profile` while the screen is locked: the login
+  keychain locks with it. The profile is still there; unlock and rerun.
+- The default profile name is upstream's; a profile saved under another name needs `AGTERM_NOTARY_PROFILE`.
+- A stray `user.name`/`user.email` in the checkout's `.git/config` overrides the global identity. Check it before
+  committing, since a rewritten history is the only fix once such commits are pushed.
+- `check-dmg.sh` fails with `Resource busy` when the image is already attached; detach it first.
+- A pipeline under `pipefail` whose reader stops early fails with SIGPIPE: read to the end instead.
+
+`intel-build.yml` restores the libghostty and zmx caches that `intel-ci.yml` saves on `legacy/intel` pushes.
+Keep `legacy/intel` as the fork's default branch: GitHub lets tag runs restore the default branch's caches;
+PR merge-ref caches cannot seed releases ([cache scope](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)).
+Both workflows must keep identical key formulas and paths: the key covers runner OS/version/architecture,
+Xcode, Zig, dependency pins, `scripts/setup.sh` and zmx patches. A miss builds from source.
 
 One-time repository settings: enable Actions on the fork, make `legacy/intel` the default branch, and restrict
 creation of `intel-v*` tags to the maintainer with a tag ruleset, since a tag push is what starts a release build.

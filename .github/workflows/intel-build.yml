@@ -43,7 +43,9 @@ jobs:
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git fetch --quiet --no-tags https://github.com/umputun/agterm.git "refs/tags/v$RELEASE_VERSION"
+          upstream="v$RELEASE_VERSION"
+          [[ ! -f .github/intel-upstream ]] || upstream=$(< .github/intel-upstream)
+          git fetch --quiet --no-tags https://github.com/umputun/agterm.git "refs/tags/$upstream"
           git merge-base --is-ancestor 'FETCH_HEAD^{commit}' HEAD
           test "$(uname -m)" = x86_64
           test "$(xcodebuild -version | sed -n '1p')" = 'Xcode 26.3'
