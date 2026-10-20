@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="840" viewBox="0 0 1320 840">
+  <defs>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="14" r="1.4" fill="#e6e1d7" fill-opacity="0.06"/>
+    </pattern>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#6d82f3" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#6d82f3" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1320" height="840" fill="#191d20"/>
+  <rect width="1320" height="840" fill="url(#dots)"/>
+  <ellipse cx="660" cy="410" rx="560" ry="260" fill="url(#glow)"/>
+  <g font-family="JetBrains Mono" font-size="26">
+    <text x="76" y="112"><tspan fill="#6d82f3">❯</tspan><tspan fill="#e6e1d7" dx="18">mv agterm.app /Applications</tspan></text>
+    <rect x="560" y="90" width="15" height="28" fill="#e6e1d7"/>
+    <g id="intel" font-size="20">
+      <text x="1244" y="110" text-anchor="end"><tspan fill="#f2b45c">x86_64</tspan><tspan fill="#6b727a" dx="12">build</tspan></text>
+    </g>
+    <path d="M76 160 H1244" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+    <path d="M520 410 H782" stroke="#4a5158" stroke-width="4" stroke-dasharray="18 12" fill="none"/>
+    <path d="M782 394 L806 410 L782 426 Z" fill="#6d82f3"/>
+  </g>
+  <!-- finder draws icon labels black over a background picture in either appearance, so each label sits on a light pad -->
+  <rect x="220" y="552" width="220" height="44" rx="22" fill="#e6e1d7"/>
+  <rect x="880" y="552" width="220" height="44" rx="22" fill="#e6e1d7"/>
+</svg>
