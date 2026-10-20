@@ -1,0 +1,69 @@
+name: Intel release attestation
+
+# dispatched by scripts/intel-release.sh once the signed, notarized DMG is on the draft release,
+# so the attested digest is the file users download rather than the image intel-dmg.yml built
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing x86_64-vX.Y.Z-rN tag; select the same tag as the workflow ref'
+        required: true
+        type: string
+
+permissions:
+  # draft release assets are visible only with write access
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: intel-attest-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  attest:
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the workflow itself to run on the selected tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^x86_64-v([0-9]+\.[0-9]+\.[0-9]+)-r[1-9][0-9]*$ ]]
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          # the notes read the range from the upstream base tag
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the DMG on the draft release
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          dir=build/intel-release
+          dmg="agterm-$RELEASE_VERSION-x86_64.dmg"
+          mkdir -p "$dir"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --pattern "$dmg" --pattern "$dmg.sha256" --pattern "agterm-$RELEASE_VERSION-x86_64-app.zip"
+          (cd "$dir" && shasum -a 256 -c "$dmg.sha256")
+          ditto -x -k "$dir/agterm-$RELEASE_VERSION-x86_64-app.zip" "$dir"
+          bash scripts/intel-verify-signed-app.sh "$dir/agterm.app" "$RELEASE_VERSION"
+          codesign --verify --strict "$dir/$dmg"
+          signature=$(codesign -dvv "$dir/$dmg" 2>&1)
+          [[ "$signature" == *$'\nAuthority=Developer ID Application:'* ]]
+          xcrun stapler validate "$dir/$dmg"
+          spctl -a -vv -t open --context context:primary-signature "$dir/$dmg"
+          brew install uv
+          bash scripts/check-dmg.sh "$dir/$dmg" "$dir/agterm.app"
+      - name: Attest the release DMG
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: build/intel-release/agterm-*-x86_64.dmg
+      - name: Write the release notes
+        run: |
+          bash scripts/intel-release-notes.sh "$RELEASE_TAG" > build/intel-release/notes.md
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file build/intel-release/notes.md
