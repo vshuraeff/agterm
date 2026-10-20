@@ -1,0 +1,63 @@
+name: Intel DMG
+
+# dispatched by scripts/intel-release.sh after it uploads the signed, notarized app to the draft release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing x86_64-vX.Y.Z-rN tag; select the same tag as the workflow ref'
+        required: true
+        type: string
+
+permissions:
+  # draft release assets are visible only with write access
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: intel-dmg-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the workflow itself to run on the selected tag
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^x86_64-v([0-9]+\.[0-9]+\.[0-9]+)-r[1-9][0-9]*$ ]]
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - name: Verify the signed app from the draft release
+        shell: bash
+        run: |
+          trap 'echo "::error::line $LINENO failed: $BASH_COMMAND"' ERR
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p build/intel-signed
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "agterm-$RELEASE_VERSION-x86_64-app.zip" --dir build/intel-signed
+          ditto -x -k "build/intel-signed/agterm-$RELEASE_VERSION-x86_64-app.zip" build/intel-signed
+          bash scripts/intel-verify-signed-app.sh build/intel-signed/agterm.app "$RELEASE_VERSION"
+      - name: Build the DMG
+        run: |
+          brew install uv
+          bash scripts/build-dmg.sh build/intel-signed/agterm.app "build/intel-dmg/agterm-$RELEASE_VERSION-x86_64.dmg"
+      - name: Attest the DMG
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: build/intel-dmg/*.dmg
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.RELEASE_TAG }}-dmg
+          path: build/intel-dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 30
