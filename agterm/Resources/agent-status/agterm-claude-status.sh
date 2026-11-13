@@ -90,7 +90,9 @@ payload=
 
 field() { # key path value, array length for an array, empty when absent or unparseable
   if [ -x /usr/bin/plutil ]; then
-    printf '%s' "$payload" | /usr/bin/plutil -extract "$1" raw -o - - 2>/dev/null
+    # macOS 15's plutil prints a failed extract's error to stdout, so only a successful one counts
+    local value
+    value=$(printf '%s' "$payload" | /usr/bin/plutil -extract "$1" raw -o - - 2>/dev/null) && printf '%s' "$value"
   elif command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r --arg p "$1" \
       'getpath($p | split(".") | map(tonumber? // .)) | if type == "array" then length else . // empty end' 2>/dev/null
